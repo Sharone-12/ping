@@ -100,6 +100,15 @@ export function formatTime(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
+
+  // Midnight campus time means the announcement gave a date but no time.
+  const hm = d.toLocaleTimeString("en-GB", {
+    timeZone: CAMPUS_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (hm === "00:00") return null;
+
   return d
     .toLocaleTimeString("en-US", {
       hour: "numeric",

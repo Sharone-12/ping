@@ -120,7 +120,11 @@ export function dedupKey(title: string, dateStart: string | null): string {
 
 function toISO(value: string | null | undefined): string | null {
   if (!value || typeof value !== "string") return null;
-  const d = new Date(value);
+
+  // A bare date has no time. Anchoring it to UTC midnight makes it render as
+  // 05:30 in India, so anchor it to midnight *campus time* instead.
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+  const d = dateOnly ? new Date(`${value.trim()}T00:00:00+05:30`) : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   // Guard against the model hallucinating far-future or past dates.
   const year = d.getUTCFullYear();

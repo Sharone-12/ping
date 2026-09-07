@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AIAnswerCard } from "@/components/AIAnswerCard";
@@ -20,14 +20,21 @@ const SUGGESTIONS = [
 
 type Phase = "idle" | "searching" | "done" | "error";
 
-export function SearchClient({ savedIds }: { savedIds: string[] }) {
-  const [query, setQuery] = useState("");
+export function SearchClient({
+  savedIds,
+  initialQuery = "",
+}: {
+  savedIds: string[];
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
   const [phase, setPhase] = useState<Phase>("idle");
   const [answer, setAnswer] = useState("");
   const [results, setResults] = useState<CampusEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [asked, setAsked] = useState("");
   const saved = new Set(savedIds);
+  const autoRan = useRef(false);
 
   async function run(q: string) {
     const text = q.trim();
@@ -64,6 +71,14 @@ export function SearchClient({ savedIds }: { savedIds: string[] }) {
       setError("Could not reach the server.");
     }
   }
+
+  // A question typed on the feed arrives as ?q= and runs immediately.
+  useEffect(() => {
+    if (!initialQuery.trim() || autoRan.current) return;
+    autoRan.current = true;
+    void run(initialQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 sm:py-12">

@@ -15,7 +15,13 @@ Rules:
 - Judge relevance on meaning, not keywords: "anything with free food" should match events that mention refreshments; "ML stuff" should match machine learning workshops.
 - Respect time words in the question ("this week", "this month", "next month", "past") using the given date.
 - If the student asks about something with no matching event, set no_results true, return an empty list, and say plainly that nothing matches. Do not pad the answer with unrelated events.
-- The answer is 1-3 sentences, conversational, and mentions specifics (dates, venues, prizes) when they are in the data. Never invent details that are not in the events.
+- The answer is AT MOST 2 sentences and 45 words. Plain prose only.
+- NEVER use bullet points, dashes, numbered lists, markdown, asterisks or line breaks in the answer. It is one short paragraph.
+- Do NOT list the events or repeat their dates and venues — the matching event cards are shown to the student directly beneath your answer. Summarise instead: say how many there are and what stands out.
+- Good: "There are four hackathons coming up. The closest is IETE Inception today, and PulseHack on 20 September has a Rs 25,000 prize pool."
+- Bad: any answer containing "-", "*", or a list of every event.
+
+Each event is given with short keys: id, t=title, k=kind, d=department, s=starts, e=ends, dl=registration deadline, v=venue, g=tags, x=summary.
 
 Respond ONLY with valid JSON:
 {"answer": "...", "event_ids": ["..."], "no_results": false}`;
@@ -28,32 +34,60 @@ function inCampusTime(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString("en-GB", {
+
+  const date = d.toLocaleDateString("en-GB", {
     timeZone: CAMPUS_TZ,
     day: "2-digit",
     month: "short",
     year: "numeric",
+  });
+
+  // Midnight campus time means no time was given in the announcement, so do
+  // not hand the model a "12:00 am" it will faithfully repeat back.
+  const hm = d.toLocaleTimeString("en-GB", {
+    timeZone: CAMPUS_TZ,
     hour: "2-digit",
     minute: "2-digit",
-    hour12: true,
   });
+  if (hm === "00:00") return date;
+
+  const time = d.toLocaleTimeString("en-US", {
+    timeZone: CAMPUS_TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${date} ${time}`;
 }
 
-/** Trimmed to keep the prompt small — the model only needs what it reasons over. */
+/** Belt and braces: the prompt forbids markdown, this removes it anyway. */
+function plainProse(text: string): string {
+  return text
+    .replace(/\*\*/g, "")
+    .replace(/^[\s]*[-*\u2022]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\s*\n+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Kept deliberately small. Groq's free tier allows 8,000 tokens per minute and
+ * a full-fat payload of every event burned ~4,000 of them per search, so two
+ * questions in a row hit the limit and stalled behind backoff. Short keys and a
+ * clipped summary cut that by roughly two thirds.
+ */
 function compact(events: CampusEvent[]) {
   return events.map((e) => ({
     id: e.id,
-    title: e.title,
-    type: e.event_type,
-    department: e.department,
-    starts: inCampusTime(e.date_start),
-    ends: inCampusTime(e.date_end),
-    deadline: inCampusTime(e.registration_deadline),
-    venue: e.venue,
-    tags: e.tags,
-    team_size: e.team_size,
-    summary: e.description?.slice(0, 240) ?? null,
-    has_registration_link: Boolean(e.registration_link),
+    t: e.title,
+    k: e.event_type,
+    d: e.department ?? undefined,
+    s: inCampusTime(e.date_start) ?? undefined,
+    e: inCampusTime(e.date_end) ?? undefined,
+    dl: inCampusTime(e.registration_deadline) ?? undefined,
+    v: e.venue ?? undefined,
+    g: e.tags.length ? e.tags : undefined,
+    x: e.description?.slice(0, 90) ?? undefined,
   }));
 }
 
@@ -85,6 +119,7 @@ export async function aiSearch(
   const result = await groqJSON<Partial<SearchResult>>({
     system: SYSTEM_PROMPT,
     user: JSON.stringify(payload),
+    maxTokens: 1500,
   });
 
   // Never trust ids back from the model — intersect with what we sent.
@@ -96,7 +131,7 @@ export async function aiSearch(
   return {
     answer:
       typeof result.answer === "string" && result.answer.trim()
-        ? result.answer.trim()
+        ? plainProse(result.answer)
         : "Here is what I found.",
     event_ids: ids,
     no_results: result.no_results === true || ids.length === 0,

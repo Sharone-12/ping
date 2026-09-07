@@ -64,27 +64,30 @@ export function SearchBar({
     );
   }
 
+  // Deliberately not a <form>: before React hydrates, pressing Enter in a form
+  // triggers a native submit that reloads the page and throws the query away.
   return (
-    <form
-      className={cn(shell, "shadow-soft")}
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit?.();
-      }}
-    >
+    <div className={cn(shell, "shadow-soft")}>
       {iconChip}
       <input
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onSubmit?.();
+          }
+        }}
         placeholder={placeholder}
         aria-label="Search"
         className="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-muted sm:text-[17px]"
       />
       {onSubmit ? (
         <button
-          type="submit"
+          type="button"
+          onClick={() => onSubmit()}
           aria-label="Search"
           className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-white transition-opacity hover:opacity-85 sm:h-11 sm:w-11"
         >
@@ -93,7 +96,7 @@ export function SearchBar({
           </span>
         </button>
       ) : null}
-    </form>
+    </div>
   );
 }
 

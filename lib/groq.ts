@@ -17,10 +17,16 @@ export async function groqJSON<T>({
   system,
   user,
   signal,
+  maxTokens = 2048,
+  reasoningEffort = "low",
 }: {
   system: string;
   user: string;
   signal?: AbortSignal;
+  /** Completion budget. gpt-oss spends tokens reasoning before it answers; too
+   *  small a budget and it returns an empty string that fails JSON validation. */
+  maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high";
 }): Promise<T> {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new GroqError("GROQ_API_KEY is not set.");
@@ -30,7 +36,18 @@ export async function groqJSON<T>({
   // Free-tier rate limits bite once a real inbox is being read. Back off and
   // retry rather than dropping the email on the floor.
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    res = await callGroq(key, system, user, signal);
+    res = await callGroq(key, system, user, signal, maxTokens, reasoningEffort);
+
+    // 400 json_validate_failed means the model produced nothing parseable —
+    // usually it ran out of budget while reasoning. Retrying is worthwhile.
+    if (res.status === 400) {
+      const body = await res.clone().text();
+      if (body.includes("json_validate_failed") && attempt < MAX_RETRIES) {
+        await sleep(300);
+        continue;
+      }
+    }
+
     if (res.status !== 429) break;
 
     const retryAfter = Number(res.headers.get("retry-after"));
@@ -50,7 +67,9 @@ function callGroq(
   key: string,
   system: string,
   user: string,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  maxTokens: number,
+  reasoningEffort: "low" | "medium" | "high",
 ) {
   return fetch(GROQ_URL, {
     method: "POST",
@@ -62,6 +81,8 @@ function callGroq(
     body: JSON.stringify({
       model: GROQ_MODEL,
       temperature: 0,
+      max_completion_tokens: maxTokens,
+      reasoning_effort: reasoningEffort,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },

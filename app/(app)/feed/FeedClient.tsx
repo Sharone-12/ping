@@ -40,6 +40,7 @@ export function FeedClient({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState("for-you");
+  const [query, setQuery] = useState("");
   const saved = useMemo(() => new Set(savedIds), [savedIds]);
   const registered = useMemo(() => new Set(registeredIds), [registeredIds]);
 
@@ -85,7 +86,16 @@ export function FeedClient({
           Parsed from campus email, sorted by what is closest.
         </p>
         <div className="mt-7 max-w-2xl">
-          <SearchBar asButton onClick={() => router.push("/search")} />
+          <SearchBar
+            value={query}
+            onChange={setQuery}
+            onSubmit={() => {
+              const q = query.trim();
+              // Typing here jumps straight to the answer rather than making the
+              // student retype the question on the search page.
+              router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+            }}
+          />
         </div>
 
         <div className="mt-5">
