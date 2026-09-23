@@ -30,6 +30,24 @@ export interface SyncOutcome {
 const EMPTY: SyncOutcome = { found: 0, scanned: 0, skipped: 0 };
 
 /**
+ * A dead refresh token means the stored connection is no longer usable.
+ * Without this, `users.gmail_connected` stays true forever, the profile page
+ * keeps rendering the static "Gmail connected" badge instead of the button
+ * that starts a new OAuth consent, and there is no way to reconnect.
+ */
+async function markGmailDisconnected(db: SupabaseClient, userId: string) {
+  await db
+    .from("users")
+    .update({
+      gmail_connected: false,
+      gmail_access_token: null,
+      gmail_refresh_token: null,
+      gmail_token_expires_at: null,
+    })
+    .eq("id", userId);
+}
+
+/**
  * Reads one user's inbox and writes any events it finds.
  *
  * `db` is scoped to the user (RLS applies) for the interactive path, or the
@@ -97,10 +115,12 @@ export async function syncUserInbox({
         .eq("id", userId);
     }
   } catch (err) {
+    const needsReconnect = err instanceof GmailError ? err.needsReconnect : false;
+    if (needsReconnect) await markGmailDisconnected(db, userId);
     return {
       ...EMPTY,
       error: err instanceof Error ? err.message : "Could not authorise Gmail.",
-      needsReconnect: err instanceof GmailError ? err.needsReconnect : false,
+      needsReconnect,
     };
   }
 
@@ -109,10 +129,12 @@ export async function syncUserInbox({
     onStatus?.("Searching your inbox…");
     ids = await listMessageIds(accessToken);
   } catch (err) {
+    const needsReconnect = err instanceof GmailError ? err.needsReconnect : false;
+    if (needsReconnect) await markGmailDisconnected(db, userId);
     return {
       ...EMPTY,
       error: err instanceof Error ? err.message : "Could not search Gmail.",
-      needsReconnect: err instanceof GmailError ? err.needsReconnect : false,
+      needsReconnect,
     };
   }
 
